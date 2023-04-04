@@ -1,7 +1,10 @@
+#!/bin/env python
+
 import sys
 import openai
 import settings
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox
+from PySide6.QtCore import Qt
 
 # Set your OpenAI API key
 openai.api_key = settings.openai_key
@@ -34,16 +37,27 @@ def generate_response(prompt, engine):
     message = response.choices[0].text.strip()
     return message
 
+# Custom QTextEdit to handle Ctrl+Enter
+class CustomTextEdit(QTextEdit):
+    def keyPressEvent(self, event):
+        if (event.key() == Qt.Key_Enter or event.key() == Qt.Key_Return) and event.modifiers() == Qt.ControlModifier:
+            on_button_click()
+        else:
+            super().keyPressEvent(event)
+
 # Function to handle button clicks
 def on_button_click():
-    user_input = input_field.text()
+    user_input = input_field.toPlainText()
     prompt = f"{user_input}"
+    output_field.append(f"You: {user_input}\n")
+    input_field.clear()
     selected_engine = engine_selector.currentText()
     # response = generate_response(prompt, selected_engine)
     response = chat_response(prompt)
     
     # Append the user input and response to the output field
-    output_field.append(f"You: {user_input}\nChatGPT: {response}\n")
+    output_field.append(f"ChatGPT: {response}\n")
+    output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
 
 # Create the PySide6 application
 app = QApplication(sys.argv)
@@ -52,7 +66,7 @@ window.setWindowTitle("ChatGPT")
 layout = QVBoxLayout()
 
 # Create input field, submit button, engine selector, and output field
-input_field = QLineEdit()
+input_field = CustomTextEdit()
 submit_button = QPushButton("Submit")
 output_field = QTextEdit()
 output_field.setReadOnly(True)
@@ -71,7 +85,7 @@ submit_button.clicked.connect(on_button_click)
 
 # Add widgets to the layout and set the layout for the window
 layout.addWidget(input_field)
-layout.addWidget(engine_selector)
+# layout.addWidget(engine_selector)
 layout.addWidget(submit_button)
 layout.addWidget(output_field)
 central_widget = QWidget()
