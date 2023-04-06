@@ -3,11 +3,15 @@
 import sys
 import openai
 import settings
+from playsound import playsound
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox
 from PySide6.QtCore import Qt
+from elevenlabs import ElevenLabs
+
 
 # Set your OpenAI API key
 openai.api_key = settings.openai_key
+eleven = ElevenLabs(settings.elevenapi_key)
 
 messages = [
         {"role":"system","content":"You are a superstar programmer"},
@@ -54,10 +58,20 @@ def on_button_click():
     selected_engine = engine_selector.currentText()
     # response = generate_response(prompt, selected_engine)
     response = chat_response(prompt)
-    
-    # Append the user input and response to the output field
     output_field.append(f"ChatGPT: {response}\n")
     output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
+    
+    print("Setting voices")
+    voice = eleven.voices["Bella"]
+    # Generate the TTS
+    print("Generating voice")
+    audio = voice.generate(response)
+    print("Saving voice")
+    audio.save("output")
+    print("Playing voice")
+    playsound("output.mp3")
+    print("Done it all")
+    # Append the user input and response to the output field
 
 # Create the PySide6 application
 app = QApplication(sys.argv)
@@ -93,6 +107,6 @@ central_widget.setLayout(layout)
 window.setCentralWidget(central_widget)
 
 # Show the window and run the application
-window.show()
+window.showMaximized()
 sys.exit(app.exec())
 

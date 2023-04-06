@@ -1,2 +1,5 @@
 pyside6
 openai
+elevenlabs
+playsound
+pygobject
