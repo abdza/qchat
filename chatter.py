@@ -1,10 +1,12 @@
 #!/bin/env python
 
+import os
 import sys
 import openai
 import settings
+import textract
 from playsound import playsound
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox, QHBoxLayout, QCheckBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox, QHBoxLayout, QCheckBox, QLabel, QFileDialog
 from PySide6.QtCore import Qt
 from elevenlabs import ElevenLabs
 
@@ -14,7 +16,7 @@ openai.api_key = settings.openai_key
 eleven = ElevenLabs(settings.elevenapi_key)
 
 messages = [
-        {"role":"system","content":"You are a superstar programmer"},
+        {"role":"system","content":"You are wise and kind old monk handing out wisdom to fellow travellers"},
         ]
 
 def chat_response(prompt):
@@ -24,7 +26,6 @@ def chat_response(prompt):
             messages=messages
     )
     messages.append(response.choices[0].message)
-    print(response)
     return response.choices[0].message.content
 
 # Function to call the OpenAI API
@@ -73,7 +74,16 @@ class ChatWindow(QMainWindow):
 # Connect the button click event to the handler function
         self.submit_button.clicked.connect(self.on_button_click)
 
+        self.file_label = QLabel("File: ")
+        self.file_text = QLineEdit()
+        self.file_text.setReadOnly(True)
+        self.file_button = QPushButton("Select file")
+        self.file_button.clicked.connect(self.on_file_button_click)
+
         controllers.addWidget(self.speak)
+        controllers.addWidget(self.file_label)
+        controllers.addWidget(self.file_text)
+        controllers.addWidget(self.file_button)
         controllers.addWidget(self.submit_button)
 # Add widgets to the layout and set the layout for the window
         layout.addWidget(self.input_field)
@@ -84,30 +94,31 @@ class ChatWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         self.showMaximized()
 
+    def on_file_button_click(self):
+        file_name = QFileDialog.getOpenFileName(self, 'Open file', '/home')
+        if file_name[0]:
+            self.file_text.setText(file_name[0])
+
 # Function to handle button clicks
     def on_button_click(self):
         try:
             user_input = self.input_field.toPlainText()
             prompt = f"{user_input}"
+
+            if os.path.exists(self.file_text.text()):
+                prompt += f"\nFile content: {textract.process(self.file_text.text())}"
+                self.file_text.setText("")
+
             self.output_field.append(f"You: {user_input}\n")
             self.input_field.clear()
-            # selected_engine = engine_selector.currentText()
-            # response = generate_response(prompt, selected_engine)
             response = chat_response(prompt)
-            # Append the user input and response to the output field
             self.output_field.append(f"ChatGPT: {response}\n")
             self.output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
             if self.speak.isChecked():
-                print("Setting voices")
                 voice = eleven.voices["Bella"]
-                # Generate the TTS
-                print("Generating voice")
                 audio = voice.generate(response)
-                print("Saving voice")
                 audio.save("output")
-                print("Playing voice")
                 playsound("output.mp3")
-                print("Done it all")
         except Exception as e:
             print('Error generating answer:',e)
 
