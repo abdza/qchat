@@ -129,4 +129,7 @@ dmypy.json
 .pyre/
 
 settings.py
+*.swp
 output.mp3
+speech.wav
+vosk-model-*

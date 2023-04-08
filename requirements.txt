@@ -5,3 +5,6 @@ playsound
 pygobject
 textract
 gTTS
+pyaudio
+vosk
+

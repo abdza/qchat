@@ -11,6 +11,91 @@ from PySide6.QtCore import Qt
 from elevenlabs import ElevenLabs
 from gtts import gTTS
 
+import pyaudio
+import wave
+import time
+import numpy as np
+import threading
+from vosk import Model, KaldiRecognizer
+
+MODEL_FOLDER = 'vosk-model-en-us-aspire-0.2'
+model = Model(MODEL_FOLDER)
+sample_rate = 16000
+recognizer = KaldiRecognizer(model, sample_rate)
+
+audio_format = pyaudio.paInt16
+channels = 1
+chunk_size = 1024
+
+audio = pyaudio.PyAudio()
+
+def detect_speech_and_record(speech_detection_enabled):
+    while True:
+        if speech_detection_enabled():
+            print("Listening for speech...")
+
+            buffer = []
+
+            def callback(in_data, frame_count, time_info, status):
+                data = np.frombuffer(in_data, dtype=np.int16)
+                buffer.append(data)
+                if not hasattr(callback, 'speech_detected') and recognizer.AcceptWaveform(data.tobytes()):
+                    callback.speech_detected = True
+                    print("Speech detected! Recording...")
+                return (in_data, pyaudio.paContinue)
+
+            stream = audio.open(format=audio_format,
+                                rate=sample_rate,
+                                channels=channels,
+                                input=True,
+                                frames_per_buffer=chunk_size,
+                                stream_callback=callback)
+
+            stream.start_stream()
+            try:
+                while stream.is_active():
+                    time.sleep(0.1)
+                    if hasattr(callback, 'speech_detected'):
+                        time.sleep(5)  # Record for 5 seconds after speech is detected.
+                        break
+            except KeyboardInterrupt:
+                print("Exiting...")
+                break
+            finally:
+                stream.stop_stream()
+                stream.close()
+
+            if hasattr(callback, 'speech_detected'):
+                delattr(callback, 'speech_detected')
+                output_file = save_audio(buffer, sample_rate, channels)
+                transcribe_audio(recognizer, output_file)
+        else:
+            time.sleep(1)
+
+def save_audio(buffer, sample_rate, channels):
+    output_file = "speech.wav"
+    print("Finished recording. Saving audio...")
+
+    audio_data = np.concatenate(buffer, axis=0).tobytes()
+    with wave.open(output_file, 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)  # 2 bytes (16 bits) per sample
+        wf.setframerate(sample_rate)
+        wf.writeframes(audio_data)
+
+    print(f"Audio saved to {output_file}")
+    return output_file
+
+def transcribe_audio(recognizer, audio_file):
+    with wave.open(audio_file, 'rb') as wf:
+        audio_data = wf.readframes(wf.getnframes())
+        audio_data_np = np.frombuffer(audio_data, dtype=np.int16)
+
+    recognizer.AcceptWaveform(audio_data_np.tobytes())
+    result = recognizer.Result()
+    print(f"Transcription: {result}")
+
+
 # Set your OpenAI API key
 openai.api_key = settings.openai_key
 eleven = ElevenLabs(settings.elevenapi_key)
@@ -55,7 +140,6 @@ class CustomTextEdit(QTextEdit):
         else:
             super().keyPressEvent(event)
 
-
 class ChatWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -73,6 +157,8 @@ class ChatWindow(QMainWindow):
         self.speak_option.addItem("gTTS")
         self.speak_option.addItem("Eleven AI")
         self.speak = QCheckBox("Speak")
+        self.listen = QCheckBox("Listen")
+        self.listen.stateChanged.connect(self.on_listen_state_changed)
 
         controllers = QHBoxLayout()
 
@@ -88,6 +174,7 @@ class ChatWindow(QMainWindow):
         controllers.addWidget(self.speak_label)
         controllers.addWidget(self.speak_option)
         controllers.addWidget(self.speak)
+        controllers.addWidget(self.listen)
         controllers.addWidget(self.file_label)
         controllers.addWidget(self.file_text)
         controllers.addWidget(self.file_button)
@@ -100,6 +187,10 @@ class ChatWindow(QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
         self.showMaximized()
+
+    def on_listen_state_changed(self):
+        if self.listen.isChecked():
+            threading.Thread(target=detect_speech_and_record, args=(self.listen.isChecked,), daemon=True).start()
 
     def on_file_button_click(self):
         file_name = QFileDialog.getOpenFileName(self, 'Open file', '/home')
