@@ -67,6 +67,11 @@ class ChatWindow(QMainWindow):
         self.submit_button = QPushButton("Submit")
         self.output_field = QTextEdit()
         self.output_field.setReadOnly(True)
+
+        self.speak_label = QLabel("Voice")
+        self.speak_option = QComboBox()
+        self.speak_option.addItem("gTTS")
+        self.speak_option.addItem("Eleven AI")
         self.speak = QCheckBox("Speak")
 
         controllers = QHBoxLayout()
@@ -80,6 +85,8 @@ class ChatWindow(QMainWindow):
         self.file_button = QPushButton("Select file")
         self.file_button.clicked.connect(self.on_file_button_click)
 
+        controllers.addWidget(self.speak_label)
+        controllers.addWidget(self.speak_option)
         controllers.addWidget(self.speak)
         controllers.addWidget(self.file_label)
         controllers.addWidget(self.file_text)
@@ -114,15 +121,18 @@ class ChatWindow(QMainWindow):
             response = chat_response(prompt)
             self.output_field.append(f"ChatGPT: {response}\n")
             self.output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
+            print('Speak:',self.speak_option.currentText())
             if self.speak.isChecked():
                 OUTPUT_PATH = "output.mp3"
-                tts = gTTS(response, lang='en', tld='co.uk')
-                tts.save(OUTPUT_PATH)
+                if self.speak_option.currentText() == "Eleven AI":
+                    voice = eleven.voices["Bella"]
+                    audio = voice.generate(response)
+                    audio.save("output")
+                else:
+                    tts = gTTS(response, lang='en', tld='co.uk')
+                    tts.save(OUTPUT_PATH)
 
-                # voice = eleven.voices["Bella"]
-                # audio = voice.generate(response)
-                # audio.save("output")
-                playsound("output.mp3")
+                playsound(OUTPUT_PATH)
         except Exception as e:
             print('Error generating answer:',e)
 
