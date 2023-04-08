@@ -9,7 +9,7 @@ from playsound import playsound
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox, QHBoxLayout, QCheckBox, QLabel, QFileDialog
 from PySide6.QtCore import Qt
 from elevenlabs import ElevenLabs
-
+from gtts import gTTS
 
 # Set your OpenAI API key
 openai.api_key = settings.openai_key
@@ -115,9 +115,13 @@ class ChatWindow(QMainWindow):
             self.output_field.append(f"ChatGPT: {response}\n")
             self.output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
             if self.speak.isChecked():
-                voice = eleven.voices["Bella"]
-                audio = voice.generate(response)
-                audio.save("output")
+                OUTPUT_PATH = "output.mp3"
+                tts = gTTS(response, lang='en', tld='co.uk')
+                tts.save(OUTPUT_PATH)
+
+                # voice = eleven.voices["Bella"]
+                # audio = voice.generate(response)
+                # audio.save("output")
                 playsound("output.mp3")
         except Exception as e:
             print('Error generating answer:',e)

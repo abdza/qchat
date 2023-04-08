@@ -4,3 +4,4 @@ elevenlabs
 playsound
 pygobject
 textract
+gTTS
