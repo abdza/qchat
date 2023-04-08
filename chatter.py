@@ -4,7 +4,7 @@ import sys
 import openai
 import settings
 from playsound import playsound
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox, QHBoxLayout, QCheckBox
 from PySide6.QtCore import Qt
 from elevenlabs import ElevenLabs
 
@@ -43,70 +43,81 @@ def generate_response(prompt, engine):
 
 # Custom QTextEdit to handle Ctrl+Enter
 class CustomTextEdit(QTextEdit):
+
+    def __init__(self, parent=None):
+        super().__init__()
+        self.parent = parent
+
     def keyPressEvent(self, event):
         if (event.key() == Qt.Key_Enter or event.key() == Qt.Key_Return) and event.modifiers() == Qt.ControlModifier:
-            on_button_click()
+            self.parent.on_button_click()
         else:
             super().keyPressEvent(event)
 
-# Function to handle button clicks
-def on_button_click():
-    user_input = input_field.toPlainText()
-    prompt = f"{user_input}"
-    output_field.append(f"You: {user_input}\n")
-    input_field.clear()
-    selected_engine = engine_selector.currentText()
-    # response = generate_response(prompt, selected_engine)
-    response = chat_response(prompt)
-    output_field.append(f"ChatGPT: {response}\n")
-    output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
-    
-    print("Setting voices")
-    voice = eleven.voices["Bella"]
-    # Generate the TTS
-    print("Generating voice")
-    audio = voice.generate(response)
-    print("Saving voice")
-    audio.save("output")
-    print("Playing voice")
-    playsound("output.mp3")
-    print("Done it all")
-    # Append the user input and response to the output field
 
-# Create the PySide6 application
-app = QApplication(sys.argv)
-window = QMainWindow()
-window.setWindowTitle("ChatGPT")
-layout = QVBoxLayout()
+class ChatWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("ChatGPT")
+        layout = QVBoxLayout()
 
 # Create input field, submit button, engine selector, and output field
-input_field = CustomTextEdit()
-submit_button = QPushButton("Submit")
-output_field = QTextEdit()
-output_field.setReadOnly(True)
+        self.input_field = CustomTextEdit(self)
+        self.submit_button = QPushButton("Submit")
+        self.output_field = QTextEdit()
+        self.output_field.setReadOnly(True)
+        self.speak = QCheckBox("Speak")
 
-# Create a QComboBox for engine selection and add available engines
-engine_selector = QComboBox()
-engine_selector.addItem("gpt-4")
-engine_selector.addItem("gpt-3.5-turbo")
-engine_selector.addItem("davinci")
-engine_selector.addItem("curie")
-engine_selector.addItem("babbage")
-engine_selector.addItem("ada")
+        controllers = QHBoxLayout()
 
 # Connect the button click event to the handler function
-submit_button.clicked.connect(on_button_click)
+        self.submit_button.clicked.connect(self.on_button_click)
 
+        controllers.addWidget(self.speak)
+        controllers.addWidget(self.submit_button)
 # Add widgets to the layout and set the layout for the window
-layout.addWidget(input_field)
-# layout.addWidget(engine_selector)
-layout.addWidget(submit_button)
-layout.addWidget(output_field)
-central_widget = QWidget()
-central_widget.setLayout(layout)
-window.setCentralWidget(central_widget)
+        layout.addWidget(self.input_field)
+        layout.addLayout(controllers)
+        layout.addWidget(self.output_field)
+        central_widget = QWidget()
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
+        self.showMaximized()
+
+# Function to handle button clicks
+    def on_button_click(self):
+        try:
+            user_input = self.input_field.toPlainText()
+            prompt = f"{user_input}"
+            self.output_field.append(f"You: {user_input}\n")
+            self.input_field.clear()
+            # selected_engine = engine_selector.currentText()
+            # response = generate_response(prompt, selected_engine)
+            response = chat_response(prompt)
+            # Append the user input and response to the output field
+            self.output_field.append(f"ChatGPT: {response}\n")
+            self.output_field.append(f"---------------------------------------------------------------------------------------------------------------\n")
+            if self.speak.isChecked():
+                print("Setting voices")
+                voice = eleven.voices["Bella"]
+                # Generate the TTS
+                print("Generating voice")
+                audio = voice.generate(response)
+                print("Saving voice")
+                audio.save("output")
+                print("Playing voice")
+                playsound("output.mp3")
+                print("Done it all")
+        except Exception as e:
+            print('Error generating answer:',e)
+
+def main():
+# Create the PySide6 application
+    app = QApplication(sys.argv)
+    window = ChatWindow()
 
 # Show the window and run the application
-window.showMaximized()
-sys.exit(app.exec())
+    sys.exit(app.exec())
 
+if __name__ == "__main__":
+    main()
