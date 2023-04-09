@@ -132,4 +132,5 @@ settings.py
 *.swp
 output.mp3
 speech.wav
+speech.mp3
 vosk-model-*

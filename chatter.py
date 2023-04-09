@@ -7,9 +7,10 @@ import settings
 import textract
 from playsound import playsound
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QLineEdit, QTextEdit, QWidget, QComboBox, QHBoxLayout, QCheckBox, QLabel, QFileDialog
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from elevenlabs import ElevenLabs
 from gtts import gTTS
+from pydub import AudioSegment
 
 import pyaudio
 import wave
@@ -18,59 +19,80 @@ import numpy as np
 import threading
 from vosk import Model, KaldiRecognizer
 
-MODEL_FOLDER = 'vosk-model-en-us-aspire-0.2'
-model = Model(MODEL_FOLDER)
-sample_rate = 16000
-recognizer = KaldiRecognizer(model, sample_rate)
 
-audio_format = pyaudio.paInt16
-channels = 1
-chunk_size = 1024
+class SpeechRecognitionThread(QThread):
+    result_signal = Signal(str)
 
-audio = pyaudio.PyAudio()
+    def run(self):
+        print("Starting speech recognition thread...")
+        MODEL_FOLDER = 'vosk-model-en-us-aspire-0.2'
+        model = Model(MODEL_FOLDER)
+        sample_rate = 16000
+        recognizer = KaldiRecognizer(model, sample_rate)
 
-def detect_speech_and_record(speech_detection_enabled):
-    while True:
-        if speech_detection_enabled():
+        audio_format = pyaudio.paInt16
+        channels = 1
+        chunk_size = 1024
+
+        buffer = []
+
+        def callback(in_data, frame_count, time_info, status):
+            data = np.frombuffer(in_data, dtype=np.int16)
+            buffer.append(data)
+            if not hasattr(callback, 'speech_detected') and recognizer.AcceptWaveform(data.tobytes()):
+                callback.speech_detected = True
+                print("Speech detected! Recording...")
+            return (in_data, pyaudio.paContinue)
+
+        p = pyaudio.PyAudio()
+
+        # Define the stream's settings
+        stream_settings = {
+            'format': audio_format,
+            'channels': channels,
+            'rate': sample_rate,
+            'input': True,
+            'frames_per_buffer': chunk_size,
+            'stream_callback': callback
+        }
+
+        while self.isRunning():
+
             print("Listening for speech...")
-
-            buffer = []
-
-            def callback(in_data, frame_count, time_info, status):
-                data = np.frombuffer(in_data, dtype=np.int16)
-                buffer.append(data)
-                if not hasattr(callback, 'speech_detected') and recognizer.AcceptWaveform(data.tobytes()):
-                    callback.speech_detected = True
-                    print("Speech detected! Recording...")
-                return (in_data, pyaudio.paContinue)
-
-            stream = audio.open(format=audio_format,
-                                rate=sample_rate,
-                                channels=channels,
-                                input=True,
-                                frames_per_buffer=chunk_size,
-                                stream_callback=callback)
-
-            stream.start_stream()
+            buffer.clear()
+            self.stream = p.open(**stream_settings)
+            self.stream.start_stream()
             try:
-                while stream.is_active():
+                while self.stream.is_active():
+                    print("stream is active")
                     time.sleep(0.1)
                     if hasattr(callback, 'speech_detected'):
                         time.sleep(5)  # Record for 5 seconds after speech is detected.
                         break
+                print("stream no longer active")
             except KeyboardInterrupt:
                 print("Exiting...")
                 break
             finally:
-                stream.stop_stream()
-                stream.close()
+                print("we are here")
+                self.stream.stop_stream()
+                self.stream.close()
 
+            print("so now we teset")
             if hasattr(callback, 'speech_detected'):
                 delattr(callback, 'speech_detected')
+                print("buffer len:", len(buffer))
                 output_file = save_audio(buffer, sample_rate, channels)
-                transcribe_audio(recognizer, output_file)
-        else:
-            time.sleep(1)
+                result = transcribe_audio(recognizer, output_file)
+                if len(result)>5:
+                    self.result_signal.emit(result)
+
+    def stop(self):
+        self.stream.stop_stream()
+        self.stream.close()
+        self.stream.terminate()
+        self.stream.wait()
+
 
 def save_audio(buffer, sample_rate, channels):
     output_file = "speech.wav"
@@ -87,13 +109,23 @@ def save_audio(buffer, sample_rate, channels):
     return output_file
 
 def transcribe_audio(recognizer, audio_file):
-    with wave.open(audio_file, 'rb') as wf:
-        audio_data = wf.readframes(wf.getnframes())
-        audio_data_np = np.frombuffer(audio_data, dtype=np.int16)
+    use_whisper = True
+    result = ''
+    if use_whisper:
+        wav_audio = AudioSegment.from_file(audio_file, format="wav")
+        wav_filename = audio_file.replace('.wav','.mp3')
+        wav_audio.export(wav_filename, format="mp3")
+        transcript = openai.Audio.transcribe("whisper-1", open(wav_filename,'rb'))
+        result = transcript.text
+    else:
+        with wave.open(audio_file, 'rb') as wf:
+            audio_data = wf.readframes(wf.getnframes())
+            audio_data_np = np.frombuffer(audio_data, dtype=np.int16)
 
-    recognizer.AcceptWaveform(audio_data_np.tobytes())
-    result = recognizer.Result()
+        recognizer.AcceptWaveform(audio_data_np.tobytes())
+        result = recognizer.Result()
     print(f"Transcription: {result}")
+    return result
 
 
 # Set your OpenAI API key
@@ -112,20 +144,6 @@ def chat_response(prompt):
     )
     messages.append(response.choices[0].message)
     return response.choices[0].message.content
-
-# Function to call the OpenAI API
-def generate_response(prompt, engine):
-    response = openai.Completion.create(
-        engine=engine,
-        prompt=prompt,
-        max_tokens=100,
-        n=1,
-        stop=None,
-        temperature=0.5,
-    )
-
-    message = response.choices[0].text.strip()
-    return message
 
 # Custom QTextEdit to handle Ctrl+Enter
 class CustomTextEdit(QTextEdit):
@@ -157,7 +175,9 @@ class ChatWindow(QMainWindow):
         self.speak_option.addItem("gTTS")
         self.speak_option.addItem("Eleven AI")
         self.speak = QCheckBox("Speak")
+        self.listening = False
         self.listen = QCheckBox("Listen")
+        self.speech_thread = SpeechRecognitionThread()
         self.listen.stateChanged.connect(self.on_listen_state_changed)
 
         controllers = QHBoxLayout()
@@ -187,10 +207,26 @@ class ChatWindow(QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
         self.showMaximized()
+        # threading.Thread(target=detect_speech_and_record, args=(self.listen.isChecked,self), daemon=True).start()
 
-    def on_listen_state_changed(self):
-        if self.listen.isChecked():
-            threading.Thread(target=detect_speech_and_record, args=(self.listen.isChecked,), daemon=True).start()
+    def on_listen_state_changed(self, state):
+        print(f"Listening: {state} - {Qt.Checked}")
+        self.listening = self.listen.isChecked()
+
+        if self.listening:
+            print("Starting speech recognition thread")
+            self.speech_thread.start()
+            self.speech_thread.result_signal.connect(self.process)
+        else:
+            print("Stopping speech recognition thread")
+            self.speech_thread.terminate()
+            self.speech_thread.wait()
+
+    def process(self, result):
+        print("Processing results: ", result)
+        self.input_field.setText(result)
+        self.on_button_click()
+        self.listen.setChecked(False)
 
     def on_file_button_click(self):
         file_name = QFileDialog.getOpenFileName(self, 'Open file', '/home')
